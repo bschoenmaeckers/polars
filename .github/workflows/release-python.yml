@@ -96,6 +96,8 @@ jobs:
         package: [polars, polars-lts-cpu, polars-u64-idx]
         os: [ubuntu-latest, macos-13, windows-latest, windows-arm64-16gb]
         architecture: [x86-64, aarch64]
+        # TODO should we spacial-case the current set abi3 version as just "lowest"?
+        abi3_version: [3.9, 3.12]
         exclude:
           - os: windows-latest
             architecture: aarch64
@@ -178,13 +180,13 @@ jobs:
         if: matrix.os != 'windows-arm64-16gb'
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: ${{ matrix.abi3_version}}
 
       - name: Set up Python (ARM64 Windows)
         if: matrix.os == 'windows-arm64-16gb'
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION_WIN_ARM64 }}
+          python-version: ${{ matrix.abi3_version}}
 
       # Otherwise can't find `tomlq` after `pip install yq`
       - name: Add Python scripts folder to GITHUB_PATH (ARM64 Windows)
@@ -203,6 +205,12 @@ jobs:
       - name: Add bigidx feature
         if: matrix.package == 'polars-u64-idx'
         run: tomlq -i -t '.dependencies.polars.features += ["bigidx"]' py-polars/Cargo.toml
+
+      - name: Set minimum abi3 version
+        # TODO test if current abi3 feature is compatible with ${{ matrix.abi3_version}}
+        run: |
+          tomlq -i -t '(.dependencies.pyo3.features[] | select(. | test("abi3-py.*")))="abi3-py + ("${{ matrix.abi3_version}}" | sub("\\."; ""))"' py-polars/Cargo.toml
+          tomlq -i -t '(.dependencies.pyo3.features[] | select(. | test("abi3-py.*")))="abi3-py + ("${{ matrix.abi3_version}}" | sub("\\."; ""))"' crates/polars-python/Cargo.toml
 
       - name: Update optional dependencies
         if: matrix.package != 'polars'
