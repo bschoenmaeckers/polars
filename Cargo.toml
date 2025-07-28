@@ -54,6 +54,7 @@ hashbrown = { version = "0.15.0", features = ["rayon", "serde"] }
 hex = "0.4.3"
 indexmap = { version = "2", features = ["std", "serde"] }
 itoa = "1.0.6"
+jiff = "0.2.15"
 libc = "0.2"
 libm = "0.2"
 memchr = "2.6"

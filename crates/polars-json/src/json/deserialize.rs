@@ -378,8 +378,13 @@ pub(crate) fn _deserialize<'a, A: Borrow<BorrowedValue<'a>>>(
                         polars_compute::cast::temporal::utf8_to_naive_timestamp_scalar(v, "%+", tu)
                     },
                     (_, Some(tz)) => {
-                        let tz = temporal_conversions::parse_offset(tz.as_str()).unwrap();
-                        temporal_conversions::utf8_to_timestamp_scalar(v, "%+", &tz, tu)
+                        let offset = temporal_conversions::parse_offset(tz.as_str()).unwrap();
+                        temporal_conversions::utf8_to_timestamp_scalar(
+                            v,
+                            "%+",
+                            &offset.to_time_zone(),
+                            tu,
+                        )
                     },
                 },
                 BorrowedValue::Static(StaticNode::Null) => None,

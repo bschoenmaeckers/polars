@@ -17,7 +17,9 @@
 
 //! Defines temporal kernels for time and date related functions.
 
-use chrono::{Datelike, Timelike};
+use jiff::civil::{Date, DateTime, Time};
+use jiff::tz::TimeZone;
+use jiff::Zoned;
 use polars_error::PolarsResult;
 
 use super::arity::unary;
@@ -26,27 +28,49 @@ use crate::datatypes::*;
 use crate::temporal_conversions::*;
 use crate::types::NativeType;
 
+// TODO remove this trait?
 // Create and implement a trait that converts chrono's `Weekday`
 // type into `i8`
-trait Int8Weekday: Datelike {
+trait Int8Weekday {
+    #[deprecated]
+    fn i8_weekday(&self) -> i8;
+}
+
+impl Int8Weekday for Date {
     fn i8_weekday(&self) -> i8 {
-        self.weekday().number_from_monday().try_into().unwrap()
+        self.weekday().to_monday_one_offset()
     }
 }
 
-impl Int8Weekday for chrono::NaiveDateTime {}
-impl<T: chrono::TimeZone> Int8Weekday for chrono::DateTime<T> {}
+impl Int8Weekday for DateTime {
+    fn i8_weekday(&self) -> i8 {
+        self.weekday().to_monday_one_offset()
+    }
+}
+
+impl Int8Weekday for Zoned {
+    fn i8_weekday(&self) -> i8 {
+        self.weekday().to_monday_one_offset()
+    }
+}
 
 // Create and implement a trait that converts chrono's `IsoWeek`
 // type into `i8`
-trait Int8IsoWeek: Datelike {
-    fn i8_iso_week(&self) -> i8 {
-        self.iso_week().week().try_into().unwrap()
-    }
+trait Int8IsoWeek {
+    #[deprecated]
+    fn i8_iso_week(&self) -> i8;
 }
 
-impl Int8IsoWeek for chrono::NaiveDateTime {}
-impl<T: chrono::TimeZone> Int8IsoWeek for chrono::DateTime<T> {}
+impl Int8IsoWeek for DateTime {
+    fn i8_iso_week(&self) -> i8 {
+        self.iso_week_date().week()
+    }
+}
+impl Int8IsoWeek for Zoned {
+    fn i8_iso_week(&self) -> i8 {
+        self.date().iso_week_date().week()
+    }
+}
 
 // Macro to avoid repetition in functions, that apply
 // `chrono::Datelike` methods on Arrays
@@ -59,8 +83,8 @@ macro_rules! date_like {
             ArrowDataType::Timestamp(time_unit, Some(timezone_str)) => {
                 let array = $array.as_any().downcast_ref().unwrap();
 
-                if let Ok(timezone) = parse_offset(timezone_str.as_str()) {
-                    Ok(extract_impl(array, *time_unit, timezone, |x| {
+                if let Ok(offset) = parse_offset(timezone_str.as_str()) {
+                    Ok(extract_impl(array, *time_unit, offset.to_time_zone(), |x| {
                         x.$extract().try_into().unwrap()
                     }))
                 } else {
@@ -123,8 +147,8 @@ macro_rules! time_like {
             ArrowDataType::Timestamp(time_unit, Some(timezone_str)) => {
                 let array = $array.as_any().downcast_ref().unwrap();
 
-                if let Ok(timezone) = parse_offset(timezone_str.as_str()) {
-                    Ok(extract_impl(array, *time_unit, timezone, |x| {
+                if let Ok(offset) = parse_offset(timezone_str.as_str()) {
+                    Ok(extract_impl(array, *time_unit, offset.to_time_zone(), |x| {
                         x.$extract().try_into().unwrap()
                     }))
                 } else {
@@ -175,7 +199,7 @@ fn date_variants<F, O>(
 ) -> PolarsResult<PrimitiveArray<O>>
 where
     O: NativeType,
-    F: Fn(chrono::NaiveDateTime) -> O,
+    F: Fn(DateTime) -> O,
 {
     match array.dtype().to_logical_type() {
         ArrowDataType::Date32 => {
@@ -218,7 +242,7 @@ fn time_variants<F, O>(
 ) -> PolarsResult<PrimitiveArray<O>>
 where
     O: NativeType,
-    F: Fn(chrono::NaiveTime) -> O,
+    F: Fn(Time) -> O,
 {
     match array.dtype().to_logical_type() {
         ArrowDataType::Time32(TimeUnit::Second) => {
@@ -253,7 +277,7 @@ where
     }
 }
 
-#[cfg(feature = "chrono-tz")]
+#[cfg(feature = "timezones")]
 fn chrono_tz<F, O>(
     array: &PrimitiveArray<i64>,
     time_unit: TimeUnit,
@@ -262,13 +286,14 @@ fn chrono_tz<F, O>(
 ) -> PolarsResult<PrimitiveArray<O>>
 where
     O: NativeType,
-    F: Fn(chrono::DateTime<chrono_tz::Tz>) -> O,
+    F: Fn(Zoned) -> O,
 {
     let timezone = parse_offset_tz(timezone_str)?;
     Ok(extract_impl(array, time_unit, timezone, op))
 }
 
-#[cfg(not(feature = "chrono-tz"))]
+// TODO do we still need this fallback?
+#[cfg(not(feature = "timezones"))]
 fn chrono_tz<F, O>(
     _: &PrimitiveArray<i64>,
     _: TimeUnit,
@@ -277,7 +302,7 @@ fn chrono_tz<F, O>(
 ) -> PolarsResult<PrimitiveArray<O>>
 where
     O: NativeType,
-    F: Fn(chrono::DateTime<chrono::FixedOffset>) -> O,
+    F: Fn(Zoned) -> O,
 {
     panic!(
         "timezone \"{}\" cannot be parsed (feature chrono-tz is not active)",
@@ -285,55 +310,46 @@ where
     )
 }
 
-fn extract_impl<T, A, F>(
+fn extract_impl<A, F>(
     array: &PrimitiveArray<i64>,
     time_unit: TimeUnit,
-    timezone: T,
+    timezone: TimeZone,
     extract: F,
 ) -> PrimitiveArray<A>
 where
-    T: chrono::TimeZone,
     A: NativeType,
-    F: Fn(chrono::DateTime<T>) -> A,
+    F: Fn(Zoned) -> A,
 {
     match time_unit {
         TimeUnit::Second => {
             let op = |x| {
                 let datetime = timestamp_s_to_datetime(x);
-                let offset = timezone.offset_from_utc_datetime(&datetime);
-                extract(chrono::DateTime::<T>::from_naive_utc_and_offset(
-                    datetime, offset,
-                ))
+                let zoned = timezone.to_zoned(datetime).unwrap(); // TODO can this fail? Probably yes.
+                extract(zoned)
             };
             unary(array, op, A::PRIMITIVE.into())
         },
         TimeUnit::Millisecond => {
             let op = |x| {
                 let datetime = timestamp_ms_to_datetime(x);
-                let offset = timezone.offset_from_utc_datetime(&datetime);
-                extract(chrono::DateTime::<T>::from_naive_utc_and_offset(
-                    datetime, offset,
-                ))
+                let zoned = timezone.to_zoned(datetime).unwrap(); // TODO can this fail? Probably yes.
+                extract(zoned)
             };
             unary(array, op, A::PRIMITIVE.into())
         },
         TimeUnit::Microsecond => {
             let op = |x| {
                 let datetime = timestamp_us_to_datetime(x);
-                let offset = timezone.offset_from_utc_datetime(&datetime);
-                extract(chrono::DateTime::<T>::from_naive_utc_and_offset(
-                    datetime, offset,
-                ))
+                let zoned = timezone.to_zoned(datetime).unwrap(); // TODO can this fail? Probably yes.
+                extract(zoned)
             };
             unary(array, op, A::PRIMITIVE.into())
         },
         TimeUnit::Nanosecond => {
             let op = |x| {
                 let datetime = timestamp_ns_to_datetime(x);
-                let offset = timezone.offset_from_utc_datetime(&datetime);
-                extract(chrono::DateTime::<T>::from_naive_utc_and_offset(
-                    datetime, offset,
-                ))
+                let zoned = timezone.to_zoned(datetime).unwrap(); // TODO can this fail? Probably yes.
+                extract(zoned)
             };
             unary(array, op, A::PRIMITIVE.into())
         },

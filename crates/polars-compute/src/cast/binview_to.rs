@@ -4,7 +4,7 @@ use arrow::compute::decimal::deserialize_decimal;
 use arrow::datatypes::{ArrowDataType, TimeUnit};
 use arrow::offset::Offset;
 use arrow::types::NativeType;
-use chrono::Datelike;
+use jiff::civil::Date;
 use num_traits::FromBytes;
 use polars_error::PolarsResult;
 
@@ -132,13 +132,9 @@ pub fn utf8view_to_naive_timestamp(
 }
 
 pub(super) fn utf8view_to_date32(from: &Utf8ViewArray) -> PrimitiveArray<i32> {
-    let iter = from.iter().map(|x| {
-        x.and_then(|x| {
-            x.parse::<chrono::NaiveDate>()
-                .ok()
-                .map(|x| x.num_days_from_ce() - EPOCH_DAYS_FROM_CE)
-        })
-    });
+    let iter = from
+        .iter()
+        .map(|x| x.and_then(|x| x.parse::<Date>().ok().map(|x| todo!())));
     PrimitiveArray::<i32>::from_trusted_len_iter(iter).to(ArrowDataType::Date32)
 }
 

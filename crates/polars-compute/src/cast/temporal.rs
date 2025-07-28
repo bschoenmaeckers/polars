@@ -5,7 +5,7 @@ pub use arrow::temporal_conversions::{
     NANOSECONDS, NANOSECONDS_IN_DAY, SECONDS_IN_DAY,
 };
 use arrow::temporal_conversions::{parse_offset, parse_offset_tz};
-use chrono::format::{Parsed, StrftimeItems};
+use jiff::tz::TimeZone;
 use polars_error::PolarsResult;
 use polars_utils::pl_str::PlSmallStr;
 
@@ -31,11 +31,11 @@ fn chrono_tz_utf_to_timestamp(
     ))
 }
 
-fn utf8view_to_timestamp_impl<T: chrono::TimeZone>(
+fn utf8view_to_timestamp_impl(
     array: &Utf8ViewArray,
     fmt: &str,
     time_zone: PlSmallStr,
-    tz: T,
+    tz: TimeZone,
     time_unit: TimeUnit,
 ) -> PrimitiveArray<i64> {
     let iter = array
@@ -51,30 +51,13 @@ fn utf8view_to_timestamp_impl<T: chrono::TimeZone>(
 /// `tz` must be built from `timezone` (either via [`parse_offset`] or `chrono-tz`).
 /// Returns in scale `tz` of `TimeUnit`.
 #[inline]
-pub fn utf8_to_timestamp_scalar<T: chrono::TimeZone>(
+pub fn utf8_to_timestamp_scalar(
     value: &str,
     fmt: &str,
-    tz: &T,
+    tz: &TimeZone,
     tu: &TimeUnit,
 ) -> Option<i64> {
-    let mut parsed = Parsed::new();
-    let fmt = StrftimeItems::new(fmt);
-    let r = chrono::format::parse(&mut parsed, value, fmt).ok();
-    if r.is_some() {
-        parsed
-            .to_datetime()
-            .map(|x| x.naive_utc())
-            .map(|x| tz.from_utc_datetime(&x))
-            .map(|x| match tu {
-                TimeUnit::Second => x.timestamp(),
-                TimeUnit::Millisecond => x.timestamp_millis(),
-                TimeUnit::Microsecond => x.timestamp_micros(),
-                TimeUnit::Nanosecond => x.timestamp_nanos_opt().unwrap(),
-            })
-            .ok()
-    } else {
-        None
-    }
+    todo!()
 }
 
 /// Parses a [`Utf8Array`] to a timeozone-aware timestamp, i.e. [`PrimitiveArray<i64>`] with type `Timestamp(Nanosecond, Some(timezone))`.
@@ -100,7 +83,11 @@ pub(crate) fn utf8view_to_timestamp(
 
     if let Ok(tz) = tz {
         Ok(utf8view_to_timestamp_impl(
-            array, fmt, time_zone, tz, time_unit,
+            array,
+            fmt,
+            time_zone,
+            tz.to_time_zone(),
+            time_unit,
         ))
     } else {
         chrono_tz_utf_to_timestamp(array, fmt, time_zone, time_unit)
@@ -127,16 +114,5 @@ pub(crate) fn utf8view_to_naive_timestamp(
 /// Returns in scale `tz` of `TimeUnit`.
 #[inline]
 pub fn utf8_to_naive_timestamp_scalar(value: &str, fmt: &str, tu: &TimeUnit) -> Option<i64> {
-    let fmt = StrftimeItems::new(fmt);
-    let mut parsed = Parsed::new();
-    chrono::format::parse(&mut parsed, value, fmt.clone()).ok();
-    parsed
-        .to_naive_datetime_with_offset(0)
-        .map(|x| match tu {
-            TimeUnit::Second => x.and_utc().timestamp(),
-            TimeUnit::Millisecond => x.and_utc().timestamp_millis(),
-            TimeUnit::Microsecond => x.and_utc().timestamp_micros(),
-            TimeUnit::Nanosecond => x.and_utc().timestamp_nanos_opt().unwrap(),
-        })
-        .ok()
+    todo!()
 }

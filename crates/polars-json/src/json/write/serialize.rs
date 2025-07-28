@@ -15,7 +15,8 @@ use arrow::temporal_conversions::{
     timestamp_to_datetime, timestamp_us_to_datetime,
 };
 use arrow::types::NativeType;
-use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime};
+use jiff::SignedDuration;
+use jiff::civil::{Date, DateTime, Time};
 use streaming_iterator::StreamingIterator;
 
 use super::utf8;
@@ -309,7 +310,7 @@ fn date_serializer<'a, T, F>(
 ) -> Box<dyn StreamingIterator<Item = [u8]> + 'a + Send + Sync>
 where
     T: NativeType,
-    F: Fn(T) -> NaiveDate + 'static + Send + Sync,
+    F: Fn(T) -> Date + 'static + Send + Sync,
 {
     let f = move |x: Option<&T>, buf: &mut Vec<u8>| {
         if let Some(x) = x {
@@ -331,7 +332,7 @@ fn duration_serializer<'a, T, F>(
 ) -> Box<dyn StreamingIterator<Item = [u8]> + 'a + Send + Sync>
 where
     T: NativeType,
-    F: Fn(T) -> Duration + 'static + Send + Sync,
+    F: Fn(T) -> SignedDuration + 'static + Send + Sync,
 {
     let f = move |x: Option<&T>, buf: &mut Vec<u8>| {
         if let Some(x) = x {
@@ -353,7 +354,7 @@ fn time_serializer<'a, T, F>(
 ) -> Box<dyn StreamingIterator<Item = [u8]> + 'a + Send + Sync>
 where
     T: NativeType,
-    F: Fn(T) -> NaiveTime + 'static + Send + Sync,
+    F: Fn(T) -> Time + 'static + Send + Sync,
 {
     let f = move |x: Option<&T>, buf: &mut Vec<u8>| {
         if let Some(x) = x {
@@ -374,7 +375,7 @@ fn timestamp_serializer<'a, F>(
     take: usize,
 ) -> Box<dyn StreamingIterator<Item = [u8]> + 'a + Send + Sync>
 where
-    F: Fn(i64) -> NaiveDateTime + 'static + Send + Sync,
+    F: Fn(i64) -> DateTime + 'static + Send + Sync,
 {
     let f = move |x: Option<&i64>, buf: &mut Vec<u8>| {
         if let Some(x) = x {
@@ -395,11 +396,12 @@ fn timestamp_tz_serializer<'a>(
     take: usize,
 ) -> Box<dyn StreamingIterator<Item = [u8]> + 'a + Send + Sync> {
     match parse_offset(tz) {
-        Ok(parsed_tz) => {
+        Ok(parsed_offset) => {
             let f = move |x: Option<&i64>, buf: &mut Vec<u8>| {
                 if let Some(x) = x {
-                    let dt_str = timestamp_to_datetime(*x, time_unit, &parsed_tz).to_rfc3339();
-                    write!(buf, "\"{dt_str}\"").unwrap();
+                    let datetime =
+                        timestamp_to_datetime(*x, time_unit, &parsed_offset.to_time_zone());
+                    write!(buf, "\"{datetime}\"").unwrap();
                 } else {
                     buf.extend_from_slice(b"null")
                 }
@@ -412,8 +414,8 @@ fn timestamp_tz_serializer<'a>(
             Ok(parsed_tz) => {
                 let f = move |x: Option<&i64>, buf: &mut Vec<u8>| {
                     if let Some(x) = x {
-                        let dt_str = timestamp_to_datetime(*x, time_unit, &parsed_tz).to_rfc3339();
-                        write!(buf, "\"{dt_str}\"").unwrap();
+                        let datetime = timestamp_to_datetime(*x, time_unit, &parsed_tz);
+                        write!(buf, "\"{datetime}\"").unwrap();
                     } else {
                         buf.extend_from_slice(b"null")
                     }

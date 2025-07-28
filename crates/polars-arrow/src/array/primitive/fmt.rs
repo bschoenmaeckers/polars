@@ -59,9 +59,13 @@ pub fn get_write_value<'a, T: NativeType, F: Write>(
             if let Some(tz) = tz {
                 let timezone = temporal_conversions::parse_offset(tz.as_str());
                 match timezone {
-                    Ok(timezone) => {
+                    Ok(offset) => {
                         dyn_primitive!(array, i64, |time| {
-                            temporal_conversions::timestamp_to_datetime(time, *time_unit, &timezone)
+                            temporal_conversions::timestamp_to_datetime(
+                                time,
+                                *time_unit,
+                                &offset.to_time_zone(),
+                            )
                         })
                     },
                     #[cfg(feature = "chrono-tz")]

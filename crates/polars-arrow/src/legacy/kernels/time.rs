@@ -1,9 +1,12 @@
 use std::str::FromStr;
-
 #[cfg(feature = "timezones")]
-use chrono::{LocalResult, NaiveDateTime, TimeZone};
-#[cfg(feature = "timezones")]
-use chrono_tz::Tz;
+use jiff::{
+    civil::DateTime,
+    tz::{
+        AmbiguousZoned,
+        TimeZone
+    }
+};
 #[cfg(feature = "timezones")]
 use polars_error::PolarsResult;
 use polars_error::{PolarsError, polars_bail};
@@ -44,51 +47,51 @@ pub enum NonExistent {
 
 #[cfg(feature = "timezones")]
 pub fn convert_to_naive_local(
-    from_tz: &Tz,
-    to_tz: &Tz,
-    ndt: NaiveDateTime,
+    from_tz: &TimeZone,
+    to_tz: &TimeZone,
+    ndt: DateTime,
     ambiguous: Ambiguous,
     non_existent: NonExistent,
-) -> PolarsResult<Option<NaiveDateTime>> {
-    let ndt = from_tz.from_utc_datetime(&ndt).naive_local();
-    match to_tz.from_local_datetime(&ndt) {
-        LocalResult::Single(dt) => Ok(Some(dt.naive_utc())),
-        LocalResult::Ambiguous(dt_earliest, dt_latest) => match ambiguous {
-            Ambiguous::Earliest => Ok(Some(dt_earliest.naive_utc())),
-            Ambiguous::Latest => Ok(Some(dt_latest.naive_utc())),
-            Ambiguous::Null => Ok(None),
-            Ambiguous::Raise => {
-                polars_bail!(ComputeError: "datetime '{}' is ambiguous in time zone '{}'. Please use `ambiguous` to tell how it should be localized.", ndt, to_tz)
-            },
-        },
-        LocalResult::None => match non_existent {
-            NonExistent::Raise => polars_bail!(ComputeError:
-                "datetime '{}' is non-existent in time zone '{}'. You may be able to use `non_existent='null'` to return `null` in this case.",
-                ndt, to_tz
-            ),
-            NonExistent::Null => Ok(None),
-        },
-    }
+) -> PolarsResult<Option<DateTime>> {
+    // TODO Can this be shorter?
+    let ndt = ndt
+        .to_zoned(TimeZone::UTC)
+        .unwrap()
+        .with_time_zone(from_tz.clone())
+        .datetime();
+    let ambiguous_zoned = to_tz.to_ambiguous_zoned(ndt);
+    // match ambiguous {
+    //     Ambiguous::Earliest => {ambiguous_zoned.earlier()}
+    //     Ambiguous::Latest => {ambiguous_zoned.latest()}
+    //     _ => todo!()
+    // };
+    todo!()
 }
 
 /// Same as convert_to_naive_local, but return `None` instead
 /// raising - in some cases this can be used to save a string allocation.
 #[cfg(feature = "timezones")]
 pub fn convert_to_naive_local_opt(
-    from_tz: &Tz,
-    to_tz: &Tz,
-    ndt: NaiveDateTime,
+    from_tz: &TimeZone,
+    to_tz: &TimeZone,
+    ndt: DateTime,
     ambiguous: Ambiguous,
-) -> Option<Option<NaiveDateTime>> {
-    let ndt = from_tz.from_utc_datetime(&ndt).naive_local();
-    match to_tz.from_local_datetime(&ndt) {
-        LocalResult::Single(dt) => Some(Some(dt.naive_utc())),
-        LocalResult::Ambiguous(dt_earliest, dt_latest) => match ambiguous {
-            Ambiguous::Earliest => Some(Some(dt_earliest.naive_utc())),
-            Ambiguous::Latest => Some(Some(dt_latest.naive_utc())),
-            Ambiguous::Null => Some(None),
-            Ambiguous::Raise => None,
-        },
-        LocalResult::None => None,
-    }
+) -> Option<Option<DateTime>> {
+    let ndt = ndt
+        .to_zoned(TimeZone::UTC)
+        .unwrap()
+        .with_time_zone(from_tz.clone())
+        .datetime();
+    // let ndt = from_tz.from_utc_datetime(&ndt).naive_local();
+    // match to_tz.from_local_datetime(&ndt) {
+    //     LocalResult::Single(dt) => Some(Some(dt.naive_utc())),
+    //     LocalResult::Ambiguous(dt_earliest, dt_latest) => match ambiguous {
+    //         Ambiguous::Earliest => Some(Some(dt_earliest.naive_utc())),
+    //         Ambiguous::Latest => Some(Some(dt_latest.naive_utc())),
+    //         Ambiguous::Null => Some(None),
+    //         Ambiguous::Raise => None,
+    //     },
+    //     LocalResult::None => None,
+    // }
+    todo!()
 }
